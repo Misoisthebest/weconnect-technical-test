@@ -1,0 +1,218 @@
+---
+title: "WeConnect Flight analysis"
+author: "Noel"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Report detailing data analytics of flights from Seattle utilizing a database of flight information
+
+The following document details the analysis of flight data given certain constraints and questions. The first few following lines are code used to clear the console and objects from the workspace, then load the required packages.
+
+```{r, echo = FALSE}
+cat("\014") #clearing the console screen
+rm(list=ls()) #removing all objects from the workspace
+
+#loading packages
+library(dplyr)
+library(ggplot2)
+library(knitr)
+```
+
+## Loading the files needed for the analysis and initial descriptive diagnosis
+
+In the following code, the .csv files are loaded, the columns are labeled with headers, then joined together to create a table with all of the information.
+
+```{r}
+#loading the csv files
+flights <- read.csv("C:/Myfiles/Misoiscool/WeConnect/flight-dataset/flights-small.csv", header = FALSE)
+carriers <- read.csv("C:/Myfiles/Misoiscool/WeConnect/flight-dataset/carriers.csv", header = FALSE)
+months <- read.csv("C:/Myfiles/Misoiscool/WeConnect/flight-dataset/months.csv", header = FALSE)
+weekdays <- read.csv("C:/Myfiles/Misoiscool/WeConnect/flight-dataset/weekdays.csv", header = FALSE)
+#naming the columns
+colnames(flights) <- c("fid","month_id","day_of_month","day_of_week_id","carrier_id","flight_num","origin_city","origin_state","dest_city","dest_state","departure_delay","taxi_out","arrival_delay","canceled","actual_time","distance","capacity","price")
+colnames(carriers) <- c("carrier_id", "carrier_name")
+colnames(months) <- c("month_id", "month")
+colnames(weekdays) <- c("day_of_week_id", "day_of_week")
+#joining the tables
+flightswcar <- merge(flights, carriers)
+flightswmonthcar <- merge(flightswcar, months, type = "inner")
+flightsall <- merge(flightswmonthcar, weekdays, type = "inner")
+
+#Remove from environment
+remove(carriers, flights, months, weekdays, flightswcar, flightswmonthcar)
+```
+
+This is just an initial diagnostic with summary information from the dataset. For the purposes of the following questions, this information is not needed. This code also lists the unique airlines that are included in this dataset.
+
+```{r}
+#inital diagnostic
+summary(flightsall)
+#finding which carriers are listed in the flight dataset
+unique(flightsall$carrier_id)
+unique(flightsall$carrier_name) #22 airlines total
+```
+
+## Finding the maximum price for flights between Seattle and NYC (nonstop)
+
+The following code finds the maximum price of a flight from Seattle to New York City or New York City to Seattle on a nonstop flight.
+
+```{r}
+#######Retrieving the max price of flights from Seattle to NY and NY to Seattle on a nonstop flight
+#separating table from flightsall with just direct flights from Seattle to NY
+flightsSEANY <- subset(flightsall, origin_city == "Seattle WA" & dest_city == "New York NY" | origin_city == "New York NY" & dest_city == "Seattle WA")
+priceflights <- aggregate(flightsSEANY$price, list(flightsSEANY$carrier_name), function(x) max(x))
+colnames(priceflights) <- c("Airline", "Price")
+library(gridExtra)
+library(grid)
+head(priceflights)
+grid.table(head(priceflights))
+#######
+```
+This table shows the most expensive tickets from American Airlines, Delta, and JetBlue.
+
+## Finding the maximum price for flights between Seattle and NYC with one stop
+
+The following code finds the maximum price of a flight from Seattle to New York City or New York City to Seattle with one layover during the flight.
+
+```{r}
+#######Calculating the max price of flights from Seattle to NY and NY to Seattle with one stop
+#flights out of Seattle
+flightsoutofSEA <- flightsall %>%
+  filter(origin_city == "Seattle WA") %>%
+  select(carrier_name, origin_city, dest_city, price)
+#flights going into NY
+flightsintoNYC <- flightsall %>%
+  filter(dest_city == "New York NY") %>%
+  select(carrier_name,origin_city, dest_city, price)
+#merging the two tables together
+flightsSEANYC <- merge(flightsoutofSEA, flightsintoNYC, by.x = c("carrier_name", "dest_city"), by.y = c("carrier_name", "origin_city"), type = "inner")
+#getting the sum of the prices
+flightsSEANYConestop <- cbind(flightsSEANYC, rowSums(flightsSEANYC[,c(4,6)]))
+#renaming the columns
+colnames(flightsSEANYConestop) <- c("carrier_name", "stop", "origin", "maxprice1stleg", "dest", "maxprice2ndleg", "totprice")
+#getting the max price for the one-stop flights by airline
+maxpriceSEANYConestopmax <- flightsSEANYConestop %>%
+  group_by(carrier_name) %>%
+  summarise(maxprice = max(totprice))
+
+#flights out of NY
+flightsoutofNYC <- flightsall %>%
+  filter(origin_city == "New York NY") %>%
+  select(carrier_name, origin_city, dest_city, price)
+#flights going into Seattle
+flightsintoSEA <- flightsall %>%
+  filter(dest_city == "Seattle WA") %>%
+  select(carrier_name,origin_city, dest_city, price)
+#merging the two tables together
+flightsNYCSEA <- merge(flightsoutofNYC, flightsintoSEA, by.x = c("carrier_name", "dest_city"), by.y = c("carrier_name", "origin_city"), type = "inner")
+#getting the sum of the pirces
+flightsNYCSEAonestop <- cbind(flightsNYCSEA, rowSums(flightsNYCSEA[,c(4,6)]))
+#renaming the columns
+colnames(flightsNYCSEAonestop) <- c("carrier_name", "stop", "origin", "maxprice1stleg", "dest", "maxprice2ndleg", "totprice")
+#getting the max prices for the one-stop flights by airline
+maxpriceNYCSEAonestopmax <- flightsNYCSEAonestop %>%
+  group_by(carrier_name) %>%
+  summarise(maxprice = max(totprice))
+#merging the two max price tables together to compare prices by airlines
+maxpriceonestop <- merge(maxpriceSEANYConestopmax, maxpriceNYCSEAonestopmax, by = "carrier_name", type = "inner")
+colnames(maxpriceonestop) <- c("carrier_name", "SEA-NYC", "NYC-SEA")
+maxpriceonestop$High_price <- pmax(maxpriceonestop$`SEA-NYC`, maxpriceonestop$`NYC-SEA`)
+maxpriceonestopdesc <- arrange(maxpriceonestop, desc(High_price))
+kable(maxpriceonestopdesc)
+#######
+```
+
+This table shows the list of carriers with descending maximum priced airline tickets between Seattle and NYC. American Airlines, Delta, Southwest, and United airlines all have the most expensive tickets with one layover at a price of 1998.
+
+## Finding the maximum price for flights between Seattle and NYC with two stops
+
+The following code finds the maximum price of a flight from Seattle to New York City or New York City to Seattle with two layovers during the flight.
+
+
+```{r}
+#######Calculating the max price for flights from Seattle to NY and NY to Seattle with two stops
+#filtering all of the city combinations that don't include Seattle or NYC as an origin or destination
+#these data were groupd by carrier name, origin city, and the destination city
+allbutSEANYC <- flightsall %>%
+  filter(dest_city != "New York NY" & dest_city != "Seattle WA" & origin_city != "New York NY" & origin_city != "Seattle WA") %>%
+  select(carrier_name, origin_city, dest_city, price) %>%
+  group_by(carrier_name, origin_city, dest_city) %>%
+  summarise(maxprice = max(price))
+#merging the previous city combinations (2nd leg of flight) with flights that had a first stop departing from Seattle
+flightsSEANYCtwostop <- merge(flightsoutofSEA, allbutSEANYC, by.x = c("carrier_name", "dest_city"), by.y = c("carrier_name", "origin_city"), type = "inner")
+#naming the columns
+colnames(flightsSEANYCtwostop) <- c("carrier_name", "stop_one", "origin_city", "price_leg_one", "stop_two", "price_leg_two")
+#merging the table for the flights from Seattle with the two stops, then the flight into NYC
+flightsSEANYCfinal <- merge(flightsSEANYCtwostop, flightsintoNYC, by.x = c("carrier_name", "stop_two"), by.y = c("carrier_name", "origin_city"), type = "inner")
+#getting the sum of the prices for a total price for the three-leg flight
+flightsSEANYCfinalsum <- cbind(flightsSEANYCfinal, rowSums(flightsSEANYCfinal[,c(5,6,8)]))
+colnames(flightsSEANYCfinalsum) <- c("carrier_name", "stop_one", "origin_city", "price_leg_one", "stop_two", "price_leg_two", "dest_city", "price", "tot_price")
+#finding the maximum price of the flights by carrier
+maxpriceSEANYCtwostop <- flightsSEANYCfinalsum %>%
+  group_by(carrier_name) %>%
+  summarise(maxprice = max(tot_price))
+#doing the reverse
+#merging the previous city combinations (2nd leg of flight) with flights that had a first stop departing from Seattle
+flightsNYCSEAtwostop <- merge(flightsoutofNYC, allbutSEANYC, by.x = c("carrier_name", "dest_city"), by.y = c("carrier_name", "origin_city"), type = "inner")
+colnames(flightsNYCSEAtwostop) <- c("carrier_name", "stop_one", "origin_city", "price_leg_one", "stop_two", "price_leg_two")
+flightsNYCSEAfinal <- merge(flightsNYCSEAtwostop, flightsintoSEA, by.x = c("carrier_name", "stop_two"), by.y = c("carrier_name", "origin_city"), type = "inner")
+flightsNYCSEAfinalsum <- cbind(flightsNYCSEAfinal, rowSums(flightsNYCSEAfinal[,c(5,6,8)]))
+colnames(flightsNYCSEAfinalsum) <- c("carrier_name", "stop_one", "origin_city", "price_leg_one", "stop_two", "price_leg_two", "dest_city", "price", "tot_price")
+maxpriceNYCSEAtwostop <- flightsNYCSEAfinalsum %>%
+  group_by(carrier_name) %>%
+  summarise(maxprice = max(tot_price))
+#merging the two max price tables together to compare prices by airlines
+maxpricetwostopNYCSEA <- merge(maxpriceSEANYCtwostop, maxpriceNYCSEAtwostop, by = "carrier_name", type = "inner")
+maxpricetwostopNYCSEA$High_price <- pmax(maxpricetwostopNYCSEA$maxprice.x, maxpricetwostopNYCSEA$maxprice.y)
+maxpricetwostopNYCSEAdesc <- arrange(maxpricetwostopNYCSEA, desc(High_price))
+kable(maxpricetwostopNYCSEAdesc)
+```
+
+This table shows the list of carriers with descending maximum priced airline tickets between Seattle and NYC. United has the most most expensive ticket with two layovers at a price of 2998.
+
+## Finding the average cost of a ticket by day of week for direct flights from Seattle to Boston on Alaska Airlines
+
+The following code finds the average cost of a ticket by each day of the week for direct flights from Seattle to Boston on Alaska Airlines Inc.
+
+```{r}
+#############
+SEABOSAK <- flightsall %>%
+  filter(origin_city == "Seattle WA" & dest_city == "Boston MA" & carrier_name == "Alaska Airlines Inc.") %>% #filtering out all flights by Alaska Airlines with an origination city of Seattle and destination city of Boston
+  group_by(day_of_week) %>% #grouping this by day of the week
+  select(carrier_name, day_of_week, price) %>%
+  summarise(average_price = mean(price))
+kable(SEABOSAK)
+```
+
+This table shows that the average price of tickets for the majority of the days of the week is in the lower-500s. The price of tickets on Saturday is 725, which is roughly 200 more than the average price of tickets during the rest of the week.
+
+## Finding the specific flights that maximize the distance traveled in the least amount of time from Seattle.
+
+The code that follows investigates the trips that allow for travel as far as possible in the least amount of time from Seattle.
+
+```{r}
+#############
+#filtering out those flights that originate in Seattle
+SEAtimefar <- flightsall %>%
+  filter(origin_city == "Seattle WA") %>%
+  select(carrier_name, fid, origin_city, dest_city, actual_time, distance)
+#adding a column that calculates the distance per unit time
+SEAtimefar$distance_over_time <- SEAtimefar$distance / SEAtimefar$actual_time
+max(SEAtimefar$distance_over_time)
+#there are some inconsistencies in the data, so this will be done with averages based on destination
+SEAtimefaravg <- flightsall %>%
+  filter(origin_city == "Seattle WA" & actual_time > 0)
+SEAtimefaravg$distance_over_time <- SEAtimefaravg$distance / SEAtimefaravg$actual_time
+SEAtimefaravg.1 <- SEAtimefaravg %>%
+  group_by(carrier_name, dest_city) %>%
+  summarise(average_dist_time = mean(distance_over_time))
+top <- SEAtimefaravg.1 %>%
+  arrange(desc(average_dist_time))
+kable(top)
+```
+
+This table lists the flights, carriers, and the destination cities of the best places to visit if you want to to travel the furthest in the least amount of time. This was calculated by getting a measure of distance over time by dividing the distance over time. Because of the inconsistencies in the data, I took the average of the distances over time for each airline and each destination. The best places to travel to to fulfill these criteria are New Orleans with Alaska Airlines, Newark with Continental, and so and and so forth.
